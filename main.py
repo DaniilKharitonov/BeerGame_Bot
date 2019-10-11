@@ -1,31 +1,31 @@
-import os
 import telebot
 import time
 from telebot import types
+from env import BeerGame
+import os
 
 
 class BeerGameBot:
 
     def __init__(self):
-
         self.n_users = 2
-        self.players = [0]*self.n_users
-        self.step = [0]*self.n_users
-        self.step_status = 0
+        self.players = {0: [0]*self.n_users}
+        self.status = {0: 0}
+        self.step = {0: [-1]*self.n_users}
+        self.joiners = {0: 0}
         self.admin = '359144162'
-
         API_TOKEN = '986860158:AAGMZWfJlQEHmgEZeYaeOfpk0nxM0QoCjrE'
         self.bot = telebot.TeleBot(API_TOKEN)
-
         """
         Game statuses are:
         0 - Game did, not began
         0 < status < (n_users + 1)- There is 'status' registered users
         (n_users + 1) - Game has began, and first moves are made
         """
-        self.status = 0
         self.bot.message_handler(func=lambda message: True)(self.message_respond)
         self.bot.callback_query_handler(func=lambda call: True)(self.call_respond)
+        self.env = {0: None}
+        self.n_terns_per_game = 30
 
     def message_respond(self, message):
         if message:
@@ -33,90 +33,101 @@ class BeerGameBot:
                 self.start_message(message)
             elif message.text == '/help':
                 self.help(message)
-            elif message.text == '/start_the_game':
-                self.start_the_game(message)
+            elif message.text == '/start_new_game':
+                self.start_new_game(message) """
             elif message.text == '/restart':
-                self.restart(message)
+                self.restart_the_game(message)
             elif message.text == '/status':
-                self.player_status(message)
+                self.player_status(message.chat.id)"""
             else:
-                if message.chat.id in self.players and self.status > self.n_users:
+                if self.find_room(message) or message.chat.id in self.joiners:
                     self.check(message)
                 else:
                     self.bot.send_message(message.chat.id, message.text)
 
     def call_respond(self, call):
         if call.message:
-            if call.data == '/start_the_game':
-                self.start_the_game(call.message)
+            if call.data == '/start_new_game':
+                self.start_new_game(call.message)
             elif call.data == '/help':
                 self.help(call.message)
             elif call.data == '/read_rules':
                 self.read_rules(call.message)
+            elif call.data == '/restart_the_game':
+                self.restart_the_game(call.message)
+            elif call.data == '/continue_the_game':
+                self.restart_the_game(call.message)
+            elif call.data == '/join_created_game':
+                self.join_created_game(call.message)
             elif call.data in ['/retailer', '/distributor', '/wholesaler', '/giant_wholesaler', '/manufacturer']:
                 self.set_the_player(call)
-            elif call.data == 'restart_the_game':
-                self.restart_the_game()
-        else:
-            print(call.message)
+            else:
+                print(call.message)
 
-    # First message you get when you came to Bot /Completed
+# First message you get when you came to Bot /Completed
     def start_message(self, message):
-        pr_start_actions = False
-
-        if self.status == 0:
-            pr_start_actions = True
+        room = self.find_room(message)
+        if not room:
             self.bot.send_message(chat_id=message.chat.id,
                                   text='Hi, I am BeerGame_Bot. With my help you can play popular Beer Game.\n'
-                                       'Join our Beer Game! You will be the first!\n')
-
-        elif 0 < self.status < self.n_users:
-            if message.chat.id not in self.players:
-                pr_start_actions = True
-                self.bot.send_message(chat_id=message.chat.id,
-                                      text='Hi, I am BeerGame_Bot. With my help you can play popular Beer Game!\n'
-                                           'Join Beer Game. We need only ' + str(self.n_users - self.status) +
-                                           ' players.')
-            else:
-                self.start_the_game(message)
-
-        elif self.status >= self.n_users:
-            if message.chat.id not in self.players:
-                self.bot.send_message(chat_id=message.chat.id,
-                                      text='Hi, I am BeerGame_Bot. With my help you can play popular Beer Game!\n'
-                                           'Unfortunately Beer Game has began without you, try it later\n')
-        if pr_start_actions:
-            bt_start_actions = ['Help', 'Read rules', 'Start the Game']
-            self.make_inline_buttons(message, bt_start_actions, "What do you want me to do?", 1)
+                                       'Join me!\n')
+            bt_start_actions = ['Help', 'Read rules', 'Start NEW Game', 'Join Created Game']
+            self.make_inline_buttons(message, bt_start_actions, 'What do you want me to do?', 1)
+        else:
+            self.bot.send_message(chat_id=message.chat.id,
+                                  text='Hi again, I am BeerGame_Bot.\n'
+                                       'As i can see you current participant of the game #{}\n'.format(room))
+            bt_possible_actions = ['Continue the Game', 'Restart the Game']
+            self.make_inline_buttons(message, bt_possible_actions, 'What do you want me to do?', 1)
 
         print(message.chat.id, '\n')
 
-    # Defines all user messages that could influence the bot /Completed
+# Creating the room for new game
+    def start_new_game(self, message):
+        room = self.find_room(message)
+        if room:
+            self.restart_the_game(message)
+        new_room = list(self.players.keys())[-1] + 1
+        self.players.update({new_room: [-1]*self.n_users})
+        self.status.update({new_room: 0})
+        self.joiners.update({message.chat.id: new_room})
+
+        self.bot.send_message(message.chat.id, "New Game has created. It's number:{}\n"
+                                               "To get your friends at this game ask them\n"
+                                               "to 'Join Created Game' in start menu with this number".format(new_room))
+        self.chose_players(message)
+
+# Defines all user messages that could influence the bot /Completed
     def help(self, message):
         self.bot.send_message(message.chat.id, 'Try next functions to solve problem you have:\n\n'
                                                '/start - starts the conversation with the bot from the beginning if '
-                                               'the Beer Game has not began yet. If it has your access will be denied\n'
+                                               'the Beer Game has not began yet. Your access will be denied if it has\n'
                                                '/restart - restarts the whole game, if you current participant\n'
-                                               '/start_the_game - starts the game from the place you leaved\n'
+                                               '/continue_the_game - starts the game from the place you leaved\n'
                                                '/status - shows your current status in the game\n'
                                                '/help - shows short summary of all functions\n'
                                                '\n If you still have questions contact @har_anad \n')
 
-    # First step of choosing your character. /Completed
-    def start_the_game(self, message):
+# For the player that join someones game
+    def join_created_game(self, message):
+        self.bot.send_message(message.chat.id, 'Send me message with the number of the game you are want to join')
+        self.joiners.update({message.chat.id: 0})
 
+# First step of choosing your character. /Completed
+    def chose_players(self, message):
+        room = self.find_room(message)
         bt_player_role = ['Retailer', 'Distributor', 'Wholesaler', 'Giant Wholesaler']
         bt_player_role = bt_player_role[:self.n_users-1]
         bt_player_role.append('Manufacturer')
 
-        if message.chat.id not in self.players and self.status < self.n_users:
-            self.make_inline_buttons(message, bt_player_role[:self.n_users],
-                                     "Choose, who are you in that retail chain?", 2)
-
-        elif message.chat.id not in self.players and self.status >= self.n_users:
-            if message.chat.id != self.admin:
+        if not room:
+            room = self.joiners[message.chat.id]
+            if self.status[room] < self.n_users:
+                self.make_inline_buttons(message, bt_player_role[:self.n_users],
+                                         "Choose, who are you in that retail chain?", 2)
+            elif message.chat.id != self.admin:
                 self.bot.send_message(message.chat.id, "Sorry the Beer Game has began, try it later\n"
-                                                       'To contact admin, press /help')
+                                                       "To contact admin, press /help")
             else:
                 self.bot.send_message(message.chat.id, "The Beer Game has began. Do you want to restart it?\n")
                 bt_restart = ['Restart the game', 'Continue the game']
@@ -125,66 +136,151 @@ class BeerGameBot:
             self.continue_the_game(message)
 
     def set_the_player(self, call):
-
+        room = self.find_room(call.message)
         cl_player_role = ['/retailer', '/distributor', '/wholesaler', '/giant_wholesaler']
         cl_player_role = cl_player_role[:(self.n_users - 1)]
         cl_player_role.append('/manufacturer')
 
-        if call.message.chat.id not in self.players and self.status < self.n_users:
+        if not room:
+            room = self.joiners[call.message.chat.id]
+            if self.status[room] < self.n_users:
+                sl_number = cl_player_role.index(call.data)  # selected number
 
-            sl_number = cl_player_role.index(call.data)  # selected number
+                if self.players[room][sl_number] == 0:
+                    self.players[room][sl_number] = call.message.chat.id
+                    self.status[room] += 1
+                    del self.joiners[call.message.chat.id]
+                    self.continue_the_game(call.message)
+                else:
+                    self.bot.send_message(call.message.chat.id, 'Someone selected this part of the chain, try another')
 
-            if self.players[sl_number] == 0:
-
-                self.players[sl_number] = call.message.chat.id
-                self.status += 1
-                self.continue_the_game(call.message)
-
-            else:
-                self.bot.send_message(call.message.chat.id, 'Someone selected this part of the chain, try another')
-
-        elif self.status < self.n_users:
+        elif self.status[room] < self.n_users:
             self.bot.send_message(call.message.chat.id,
                                   "You've done everything you needed to do. Just wait for your turtle friend")
-
         else:
             self.continue_the_game(call.message)
-        print(self.players)
+
+        print(self.players[room])
 
     def continue_the_game(self, message):
-        if self.status < self.n_users:
+        room = self.find_room(message)
+        if self.status[room] < self.n_users:
             self.bot.send_message(message.chat.id,
-                                  "Just wait for your friend\n"
-                                  'If it takes too much time, just press restart in /help')
-            print(self.status, ' ', self.n_users)
+                                  "You have selected the role. Now just wait for your friends\n"
+                                  "If it takes too much time, just press restart in /help")
+            print("Room {}. Current status {}".format(room, self.status[room]))
+        elif self.status[room] == self.n_users:
+            self.status[room] += 1
+            self.step.update({room: [-1]*self.n_users})
+            self.env.update({room: BeerGame(n_agents=self.n_users, env_type='classical',
+                                            n_turns_per_game=self.n_terns_per_game)})
+            self.env[room].reset()
 
-        elif self.status == self.n_users:
-            for tmp in self.players:
+            for tmp in self.players[room]:
                 self.bot.send_message(tmp, 'Ready to start?')
-            time.sleep(2)
-            for tmp in self.players:
-                self.bot.send_message(tmp, 'Beer Game is beginning right now!')
+            for dialog in self.players:
+                self.bot.send_message(dialog, 'Beer Game is beginning right now!\n')
+                self.bot.send_message(dialog, 'Current situation is following...')
+            self.game_status(room)
+
+            for dialog in self.players[room]:
+                self.bot.send_message(dialog, 'Now you are able to order some beer. Just send me the INTEGER number')
+        else:
+            self.game_step(message)
+
+    # Sending message about current status
+    def game_status(self,room):
+        for dialog in self.players[room]:
+            self.player_status(dialog)
+
+    def player_status(self, dialog):
+        room = self.find_room(dialog)
+        index = self.players[room].index(dialog)
+        status = self.env[room]._get_observations()
+        self.bot.send_message(dialog, "Previously Placed Orders: {}\n"
+                                      "Incoming Order:           {}\n\n"
+                                      "Current Stock:            {}\n"
+                                      "Previous Shipments:        ↓\n"
+                                      "                          {}\n"
+                                      "                           ↓\n"
+                                      "                          {}\n".format(status[index]['orders'],
+                                                                              status[index]['next_incoming_order'],
+                                                                              status[index]['current_stock'],
+                                                                              status[index]['shipments'][0],
+                                                                              status[index]['shipments'][1]))
+
+    def game_step(self, message):
+        room = self.find_room(message.chat.id)
+        pl_index = self.players[room].index(message.chat.id)
+        if list(self.step[room])[pl_index] == -1:
+            self.step[pl_index] = int(message.text)
+        else:
+            self.bot.send_message(message.chat.id, "Your order was {}.\n"
+                                                   "Wait for your friends\n".format(self.step[pl_index]))
+        print(self.step)
+
+        if -1 not in self.step:
+
+            self.env.step(self.step)
+            self.game_status()
 
             self.status += 1
-            # Inicializing Beer Game
+            self.step = [-1] * self.n_users
+            print(self.status, '\n', self.step)
 
-        else:
-            pl_index = self.players.index(message.chat.id)
-            self.step[pl_index] = int(message.text)
-            print(self.step)
-            self.step_status += 1
-            if self.step_status == self.n_users:
-                self.step_status = 0
-                # Providing data to beer game env
-                self.status += 1
-                self.step = [0]*self.n_users
-                print(self.status, '\n', self.step)
+            if self.env.done:
+                self.finish()
+
+    def finish(self):
+        sum = 0
+        for dialog in self.players:
+            index = self.players.index(dialog)
+            status = self.env._get_observations()
+            self.bot.send_message(dialog, "Uraaaaaaaa!")
+            self.bot.send_message(dialog, "Game is over, your score: {}".format(status[index]['cum_cost']))
+
+            sum += status[index]['cum_cost']
+        for dialog in self.players:
+            self.bot.send_message(dialog, "Total score of your team: {}".format(sum))
+
+        self.restart_the_game()
 
     def check(self, message):
-        self.continue_the_game(message)
+        room = self.find_room(message)
 
-    def restart_the_game(self):
-        return
+        # Game has began, sending number is the step
+        if self.status[room] > self.n_users:
+            try:
+                tmp_value = int(message.text)
+                if tmp_value >= 0:
+                    self.continue_the_game(message)
+                else:
+                    self.bot.send_message(message.chat.id, "Please insert not negative INTEGER values")
+            except (TypeError, ValueError):
+                self.bot.send_message(message.chat.id, "Please insert only INTEGER values")
+
+        # Player trying to join the game
+        elif message.chat.id in self.joiners:
+            try:
+                tmp_value = int(message.text)
+                if tmp_value in self.players:
+                    if self.status[tmp_value] < self.n_users:
+                        self.joiners[message.chat.id] = tmp_value
+                        self.chose_players(message)
+                    else:
+                        self.bot.send_message(message.chat.id, "Sorry the Beer Game # {} has began.\n"
+                                                               "You can start your own game".format(tmp_value))
+                else:
+                    self.bot.send_message(message.chat.id, "There is no such game, check that you entered "
+                                                           "the right number and try it again. \n"
+                                                           "You start your own game")
+            except (TypeError, ValueError):
+                self.bot.send_message(message.chat.id, "Please insert only INTEGER values")
+        else:
+            self.bot.send_message(message.chat.id, "Something went wrong. Please go to /help")
+
+    def restart_the_game(self, message):
+        self.__init__()
 
     def read_rules(self, message):
         markup = types.InlineKeyboardMarkup()
@@ -216,6 +312,12 @@ class BeerGameBot:
         else:
             return
 
+    def find_room(self, message):
+        room = 0
+        for i in self.players:
+            if message.chat.id in self.players[i]:
+                room = i
+        return room
 
 New_Session = BeerGameBot()
 New_Session.bot.polling()

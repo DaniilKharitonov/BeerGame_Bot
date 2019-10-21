@@ -35,6 +35,7 @@ class BeerGameBot:
             elif message.text == '/start_new_game':
                 self.start_new_game(message)
             elif message.text == '/join_existing_game':
+                self.bot.send_message(message.chat.id, 'Your previous game was restarted. Press /start')
                 self.join_existing_game(message)
             elif message.text == '/restart':
                 self.restart_the_game_message(message)
@@ -69,13 +70,13 @@ class BeerGameBot:
             elif call.data == '/restart_the_game':
                 if call.message.chat.id in self.joiners:
                     if self.joiners[call.message.chat.id] != 0:
-                        self.bot.send_message(call.message.chat.id, 'Game was restarted, press /start')
+                        self.bot.send_message(call.message.chat.id, 'Your previous game was restarted. Press /start')
                         self.restart_the_game(self.joiners[call.message.chat.id])
                     else:
                         self.bot.send_message(call.message.chat.id, 'You are not playing any game')
                 elif self.find_room(call.message):
-                    self.bot.send_message(call.message.chat.id, 'Press /start')
-                    self.restart_the_game(self.find_room(call.message.chat.id))
+                    self.bot.send_message(call.message.chat.id, 'Your previous game was restarted. Press /start')
+                    self.restart_the_game(self.find_room(call.message))
             elif call.data == '/continue_the_game':
                 if call.message.chat.id in self.joiners:
                     self.choose_players(call.message)
@@ -338,6 +339,7 @@ class BeerGameBot:
 
     # Restart the game by call
     def restart_the_game(self, room):
+        print('Ok')
         del self.players[room]
         del self.status[room]
         del self.step[room]
